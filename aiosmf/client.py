@@ -34,6 +34,7 @@ class Client:
         self._incoming_filters = incoming_filters
         self._outgoing_filters = outgoing_filters
         self._loop = loop or asyncio.get_running_loop()
+        self._handle_incoming_timeout = 0.1
         self._reader = None
         self._writer = None
         self._session_id = 0
@@ -42,7 +43,7 @@ class Client:
     async def connect(self):
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, loop=self._loop)
-        asyncio.create_task(self._read_task())
+        asyncio.create_task(self._read())
 
     async def invoke(self, payload, func_id):
         """
@@ -86,16 +87,26 @@ class Client:
             in_filter(ctx)
         return ctx.payload, ctx.meta
 
-    async def _read_task(self):
+    async def _handle_incoming(self):
+        hdr = await self._read_header()
+        response = self._session_rv.pop(hdr.Session(), None)
+        if response is not None:
+            payload = await self._read_payload(hdr)
+            recv_ctx = _Context(payload, hdr.Meta(), hdr.Session(), hdr.Compression())
+            response.set_result(recv_ctx)
+        else:
+            logging.error("session id {} not found".format(hdr.Session()))
+
+    async def _read(self):
+        # todo:
+        #  - handle exceptions that propogate up to here
         while True:
-            hdr = await self._read_header()
-            response = self._session_rv.pop(hdr.Session(), None)
-            if response is not None:
-                payload = await self._read_payload(hdr)
-                recv_ctx = _Context(payload, hdr.Meta(), hdr.Session(), hdr.Compression())
-                response.set_result(recv_ctx)
-            else:
-                logging.error("session id {} not found".format(hdr.Session()))
+            try:
+                await asyncio.wait_for(self._handle_incoming(),
+                        timeout=self._handle_incoming_timeout,
+                        loop=self._loop)
+            except asyncio.TimeoutError:
+                logger.error("timeout error")
 
     async def _read_header(self):
         # flatbuffers.builder.Builder.MAX_BUFFER_SIZE
