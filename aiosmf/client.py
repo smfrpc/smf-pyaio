@@ -9,6 +9,7 @@ import aiosmf.smf.rpc.header_bit_flags
 
 logger = logging.getLogger("smf.client")
 
+_INCOMING_TIMEOUT = 0.01
 _UINT16_MAX = 65535
 _UINT32_MAX = 4294967295
 
@@ -28,13 +29,13 @@ class _Context:
 
 class Client:
     def __init__(self, host, port, *, incoming_filters=(),
-            outgoing_filters=(), loop=None):
+            outgoing_filters=(), incoming_timeout=_INCOMING_TIMEOUT, loop=None):
         self._host = host
         self._port = port
         self._incoming_filters = incoming_filters
         self._outgoing_filters = outgoing_filters
         self._loop = loop or asyncio.get_running_loop()
-        self._handle_incoming_timeout = 0.1
+        self._incoming_timeout = incoming_timeout
         self._reader = None
         self._writer = None
         self._session_id = 0
@@ -98,15 +99,19 @@ class Client:
             logging.error("session id {} not found".format(hdr.Session()))
 
     async def _read(self):
-        # todo:
-        #  - handle exceptions that propogate up to here
         while True:
             try:
                 await asyncio.wait_for(self._handle_incoming(),
-                        timeout=self._handle_incoming_timeout,
+                        timeout=self._incoming_timeout,
                         loop=self._loop)
             except asyncio.TimeoutError:
                 logger.error("timeout error")
+            except Exception as e:
+                # we should pobably reset things here...
+                logger.error("got error {}".format(e))
+                for response in self._session_rv.values():
+                    response.set_exception(Exception("something happened"))
+
 
     async def _read_header(self):
         # flatbuffers.builder.Builder.MAX_BUFFER_SIZE
