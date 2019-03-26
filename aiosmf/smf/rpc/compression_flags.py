@@ -17,4 +17,4 @@ class compression_flags(object):
     zstd = 2
 # /// \brief lz4 compression
     lz4 = 3
-
+    max = lz4
