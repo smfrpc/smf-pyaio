@@ -6,12 +6,16 @@ import xxhash
 import aiosmf.smf.rpc.header
 import aiosmf.smf.rpc.compression_flags
 import aiosmf.smf.rpc.header_bit_flags
+from aiosmf.smf.rpc.compression_flags import compression_flags
 
 logger = logging.getLogger("smf.client")
 
 _INCOMING_TIMEOUT = 0.01
 _UINT16_MAX = 65535
 _UINT32_MAX = 4294967295
+
+_COMPRESSION_FLAGS_DISABLED = compression_flags().disabled
+_COMPRESSION_FLAGS_MAX = compression_flags().max
 
 def _checksum(data):
     return xxhash.xxh64(data).intdigest() & _UINT32_MAX
@@ -89,14 +93,18 @@ class Client:
         return ctx.payload, ctx.meta
 
     async def _handle_incoming(self):
-        hdr = await self._read_header()
-        response = self._session_rv.pop(hdr.Session(), None)
-        if response is not None:
-            payload = await self._read_payload(hdr)
-            recv_ctx = _Context(payload, hdr.Meta(), hdr.Session(), hdr.Compression())
-            response.set_result(recv_ctx)
+        header = await self._read_header()
+        payload = await self._read_payload(header)
+        compression = header.Compression()
+        if header.Compression() == _COMPRESSION_FLAGS_DISABLED:
+            compression = _COMPRESSION_FLAGS_NONE
+        recv_ctx = _Context(payload, header.Meta(), header.Session(), compression)
+        session = self._session_rv.pop(header.Session(), None)
+        if session is not None:
+            session.set_result(recv_ctx)
         else:
-            logging.error("session id {} not found".format(hdr.Session()))
+            # we should probably reset things here by raising an exception
+            logging.error("session id {} not found".format(header.Session()))
 
     async def _read(self):
         while True:
@@ -112,18 +120,28 @@ class Client:
                 for response in self._session_rv.values():
                     response.set_exception(Exception("something happened"))
 
-
     async def _read_header(self):
-        # flatbuffers.builder.Builder.MAX_BUFFER_SIZE
-        buf = await self._reader.readexactly(16)
-        hdr = aiosmf.smf.rpc.header.header()
-        hdr.Init(buf, 0)
-        return hdr
+        buf = await self._reader.readexactly(16) #timeout?
+        header = aiosmf.smf.rpc.header.header()
+        header.Init(buf, 0)
+        if header.Size() == 0:
+            raise Exception("skipping body its empty")
+        if header.Size() > flatbuffers.builder.Builder.MAX_BUFFER_SIZE:
+            raise Exception("bad payload. body bigger than flatbuf max size")
+        if header.Compression() > _COMPRESSION_FLAGS_MAX:
+            raise Exception("compression out of range")
+        if header.Checksum() <= 0:
+            raise Exception("empty checksum")
+        if header.Bitflags() != 0:
+            raise NotImplementedError()
+        if header.Meta() <= 0:
+            raise Exception("empty meta")
+        return header
 
-    async def _read_payload(self, hdr):
-        buf = await self._reader.readexactly(hdr.Size())
+    async def _read_payload(self, header):
+        buf = await self._reader.readexactly(header.Size()) #timeout?
         checksum = _checksum(buf)
-        if hdr.Checksum() == checksum:
+        if header.Checksum() == checksum:
             return buf
         else:
-            logger.error("payload checksum {} mismatch {}".format(checksum, hdr.Checksum()))
+            raise Exception("payload checksum mismatch")
