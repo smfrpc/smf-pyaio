@@ -92,7 +92,7 @@ class Client:
             response = self._session_rv.pop(hdr.Session(), None)
             if response is not None:
                 payload = await self._read_payload(hdr)
-                recv_ctx = _Context(payload, hdr.Meta(), hdr.Compression())
+                recv_ctx = _Context(payload, hdr.Meta(), hdr.Session(), hdr.Compression())
                 response.set_result(recv_ctx)
             else:
                 logging.error("session id {} not found".format(hdr.Session()))
