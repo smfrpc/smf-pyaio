@@ -3,9 +3,8 @@ import collections
 import logging
 import flatbuffers
 import xxhash
-import aiosmf.smf.rpc.header
-import aiosmf.smf.rpc.compression_flags
-import aiosmf.smf.rpc.header_bit_flags
+import aiosmf
+from aiosmf.smf.rpc import header as rpc_header
 from aiosmf.smf.rpc.compression_flags import compression_flags
 
 logger = logging.getLogger("smf.client")
@@ -16,6 +15,7 @@ _UINT32_MAX = 4294967295
 
 _COMPRESSION_FLAGS_DISABLED = compression_flags().disabled
 _COMPRESSION_FLAGS_MAX = compression_flags().max
+_COMPRESSION_FLAGS_NONE = compression_flags().none
 
 def _checksum(data):
     return xxhash.xxh64(data).intdigest() & _UINT32_MAX
@@ -25,7 +25,7 @@ class _Context:
     Manage RPC send and receive state.
     """
     def __init__(self, payload, meta, session_id,
-            compression=aiosmf.smf.rpc.compression_flags.compression_flags().none):
+            compression=_COMPRESSION_FLAGS_NONE):
         self.payload = payload
         self.meta = meta
         self.session_id = session_id
@@ -85,16 +85,15 @@ class Client:
     def _build_header(self, ctx):
         checksum = _checksum(ctx.payload)
         builder = flatbuffers.Builder(20)
-        header = aiosmf.smf.rpc.header.Createheader(builder,
-                ctx.compression,
-                0, ctx.session_id, len(ctx.payload), checksum, ctx.meta)
+        header = rpc_header.Createheader(builder, ctx.compression, 0,
+            ctx.session_id, len(ctx.payload), checksum, ctx.meta)
         builder.Finish(header)
         return builder.Output()[4:]
 
-    async def _receive_reply(self, response):
-        ctx = await response
-        ctx.apply(self._incoming_filters)
-        return ctx.payload, ctx.meta
+    async def _receive_reply(self, future_reply):
+        recv_ctx = await future_reply
+        recv_ctx.apply(self._incoming_filters)
+        return recv_ctx.payload, recv_ctx.meta
 
     async def _read_requests(self):
         while True:
@@ -126,7 +125,7 @@ class Client:
 
     async def _read_header(self):
         buf = await self._reader.readexactly(16) #timeout?
-        header = aiosmf.smf.rpc.header.header()
+        header = rpc_header.header()
         header.Init(buf, 0)
         if header.Size() == 0:
             raise Exception("skipping body its empty")
