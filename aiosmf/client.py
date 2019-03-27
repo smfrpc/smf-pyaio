@@ -48,7 +48,7 @@ class Client:
     async def connect(self):
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, loop=self._loop)
-        asyncio.create_task(self._read())
+        asyncio.create_task(self._read_requests())
 
     async def invoke(self, payload, func_id):
         """
@@ -92,7 +92,21 @@ class Client:
             in_filter(ctx)
         return ctx.payload, ctx.meta
 
-    async def _handle_incoming(self):
+    async def _read_requests(self):
+        while True:
+            try:
+                await asyncio.wait_for(self._read_request(),
+                        timeout=self._incoming_timeout,
+                        loop=self._loop)
+            except asyncio.TimeoutError:
+                logger.error("timeout error")
+            except Exception as e:
+                # we should pobably reset things here...
+                logger.error("got error {}".format(e))
+                for response in self._session_rv.values():
+                    response.set_exception(Exception("something happened"))
+
+    async def _read_request(self):
         header = await self._read_header()
         payload = await self._read_payload(header)
         compression = header.Compression()
@@ -105,20 +119,6 @@ class Client:
         else:
             # we should probably reset things here by raising an exception
             logging.error("session id {} not found".format(header.Session()))
-
-    async def _read(self):
-        while True:
-            try:
-                await asyncio.wait_for(self._handle_incoming(),
-                        timeout=self._incoming_timeout,
-                        loop=self._loop)
-            except asyncio.TimeoutError:
-                logger.error("timeout error")
-            except Exception as e:
-                # we should pobably reset things here...
-                logger.error("got error {}".format(e))
-                for response in self._session_rv.values():
-                    response.set_exception(Exception("something happened"))
 
     async def _read_header(self):
         buf = await self._reader.readexactly(16) #timeout?
