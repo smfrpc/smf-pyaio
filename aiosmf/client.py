@@ -31,6 +31,10 @@ class _Context:
         self.session_id = session_id
         self.compression = compression
 
+    def apply(self, filters):
+        for f in filters:
+            f(self)
+
 class Client:
     def __init__(self, host, port, *, incoming_filters=(),
             outgoing_filters=(), incoming_timeout=_INCOMING_TIMEOUT, loop=None):
@@ -72,8 +76,7 @@ class Client:
         return (self._session_id, future_reply)
 
     async def _send_request(self, ctx):
-        for out_filter in self._outgoing_filters:
-            out_filter(ctx)
+        ctx.apply(self._outgoing_filters)
         header = self._build_header(ctx)
         self._writer.write(header)
         self._writer.write(ctx.payload)
@@ -89,8 +92,7 @@ class Client:
 
     async def _receive_reply(self, response):
         ctx = await response
-        for in_filter in self._incoming_filters:
-            in_filter(ctx)
+        ctx.apply(self._incoming_filters)
         return ctx.payload, ctx.meta
 
     async def _read_requests(self):
