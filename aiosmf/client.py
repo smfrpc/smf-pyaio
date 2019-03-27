@@ -43,23 +43,40 @@ class Client:
         self._reader = None
         self._writer = None
         self._session_id = 0
-        self._session_rv = {}
+        self._sessions = {}
 
     async def connect(self):
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, loop=self._loop)
         asyncio.create_task(self._read_requests())
 
-    async def invoke(self, payload, func_id):
+    async def call(self, payload, func_id):
         """
         Args:
             payload:
             func_id:
         """
-        session_id, response = self._new_session()
-        ctx = _Context(payload, func_id, session_id)
-        self._loop.create_task(self._invoke_send(ctx))
-        return await self._invoke_receive(response)
+        session_id, future_reply = self._new_session()
+        call_ctx = _Context(payload, func_id, session_id)
+        self._loop.create_task(self._send_request(call_ctx))
+        return await self._receive_reply(future_reply)
+
+    def _new_session(self):
+        self._session_id += 1
+        if self._session_id > _UINT16_MAX:
+            self._session_id = 0
+        if self._session_id in self._sessions:
+            raise Exception("no rpc slot available")
+        future_reply = self._loop.create_future()
+        self._sessions[self._session_id] = future_reply
+        return (self._session_id, future_reply)
+
+    async def _send_request(self, ctx):
+        for out_filter in self._outgoing_filters:
+            out_filter(ctx)
+        header = self._build_header(ctx)
+        self._writer.write(header)
+        self._writer.write(ctx.payload)
 
     def _build_header(self, ctx):
         checksum = _checksum(ctx.payload)
@@ -70,24 +87,7 @@ class Client:
         builder.Finish(header)
         return builder.Output()[4:]
 
-    def _new_session(self):
-        self._session_id += 1
-        if self._session_id > _UINT16_MAX:
-            self._session_id = 0
-        if self._session_id in self._session_rv:
-            raise Exception("no rpc slot available")
-        response = self._loop.create_future()
-        self._session_rv[self._session_id] = response
-        return (self._session_id, response)
-
-    async def _invoke_send(self, ctx):
-        for out_filter in self._outgoing_filters:
-            out_filter(ctx)
-        header = self._build_header(ctx)
-        self._writer.write(header)
-        self._writer.write(ctx.payload)
-
-    async def _invoke_receive(self, response):
+    async def _receive_reply(self, response):
         ctx = await response
         for in_filter in self._incoming_filters:
             in_filter(ctx)
@@ -104,7 +104,7 @@ class Client:
             except Exception as e:
                 # we should pobably reset things here...
                 logger.error("got error {}".format(e))
-                for response in self._session_rv.values():
+                for response in self._sessions.values():
                     response.set_exception(Exception("something happened"))
 
     async def _read_request(self):
@@ -114,7 +114,7 @@ class Client:
         if header.Compression() == _COMPRESSION_FLAGS_DISABLED:
             compression = _COMPRESSION_FLAGS_NONE
         recv_ctx = _Context(payload, header.Meta(), header.Session(), compression)
-        session = self._session_rv.pop(header.Session(), None)
+        session = self._sessions.pop(header.Session(), None)
         if session is not None:
             session.set_result(recv_ctx)
         else:
