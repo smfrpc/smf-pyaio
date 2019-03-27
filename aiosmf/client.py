@@ -62,7 +62,7 @@ class Client:
         """
         session_id, future_reply = self._new_session()
         call_ctx = _Context(payload, func_id, session_id)
-        self._loop.create_task(self._send_request(call_ctx))
+        await self._send_request(call_ctx)
         return await self._receive_reply(future_reply)
 
     def _new_session(self):
@@ -80,6 +80,7 @@ class Client:
         header = self._build_header(ctx)
         self._writer.write(header)
         self._writer.write(ctx.payload)
+        await self._writer.drain()
 
     def _build_header(self, ctx):
         checksum = _checksum(ctx.payload)
