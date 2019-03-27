@@ -52,7 +52,7 @@ class Client:
     async def connect(self):
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, loop=self._loop)
-        asyncio.create_task(self._read_requests())
+        asyncio.ensure_future(self._read_requests(), loop=self._loop)
 
     async def call(self, payload, func_id):
         """
