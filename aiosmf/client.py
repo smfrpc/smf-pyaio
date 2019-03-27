@@ -74,7 +74,8 @@ class Client:
         self._session_id += 1
         if self._session_id > _UINT16_MAX:
             self._session_id = 0
-        assert self._session_id not in self._session_rv
+        if self._session_id in self._session_rv:
+            raise Exception("no rpc slot available")
         response = self._loop.create_future()
         self._session_rv[self._session_id] = response
         return (self._session_id, response)
