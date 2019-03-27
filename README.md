@@ -1,3 +1,5 @@
+* Works with https://github.com/MagicStack/uvloop
+
 # flatc notes
 
 ```diff
