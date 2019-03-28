@@ -50,6 +50,8 @@ class Client:
         self._sessions = {}
 
     async def connect(self):
+        assert self._reader is None
+        assert self._writer is None
         self._reader, self._writer = await asyncio.open_connection(
             self._host, self._port, loop=self._loop)
         asyncio.ensure_future(self._read_requests(), loop=self._loop)
@@ -64,6 +66,13 @@ class Client:
         call_ctx = _Context(payload, func_id, session_id)
         await self._send_request(call_ctx)
         return await self._receive_reply(future_reply)
+
+    async def close(self):
+        if self._reader:
+            self._reader.feed_eof()
+        if self._writer:
+            self._writer.close()
+            await self._writer.wait_closed()
 
     def _new_session(self):
         self._session_id += 1
@@ -148,3 +157,10 @@ class Client:
             return buf
         else:
             raise Exception("payload checksum mismatch")
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
