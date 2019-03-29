@@ -3,8 +3,7 @@ import asyncio
 import collections
 import logging
 import flatbuffers
-import aiosmf
-from aiosmf.smf.rpc import header as rpc_header
+import aiosmf.smf.rpc.header
 
 from .util import (
     parse_address,
@@ -136,8 +135,8 @@ class SMFConnection:
     def _build_header(self, ctx):
         checksum = payload_checksum(ctx.payload)
         builder = flatbuffers.Builder(20)
-        header = rpc_header.Createheader(builder, ctx.compression, 0,
-            ctx.session_id, len(ctx.payload), checksum, ctx.meta)
+        header = aiosmf.smf.rpc.header.Createheader(builder, ctx.compression, 0,
+                ctx.session_id, len(ctx.payload), checksum, ctx.meta)
         builder.Finish(header)
         return builder.Output()[4:]
 
@@ -182,8 +181,8 @@ class SMFConnection:
             logging.error("session id {} not found".format(header.Session()))
 
     async def _read_header(self):
-        buf = await self._reader.readexactly(16) #timeout?
-        header = rpc_header.header()
+        buf = await self._reader.readexactly(16)
+        header = aiosmf.smf.rpc.header.header()
         header.Init(buf, 0)
         if header.Size() == 0:
             raise Exception("skipping body its empty")
