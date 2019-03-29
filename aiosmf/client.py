@@ -49,6 +49,9 @@ class Client:
         self._session_id = 0
         self._sessions = {}
 
+    def __repr__(self):
+        return "<SMFClient [{}:{}]>".format(self._host, self._port)
+
     async def connect(self):
         assert self._reader is None
         assert self._writer is None
