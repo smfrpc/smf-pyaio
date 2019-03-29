@@ -5,7 +5,6 @@ import logging
 import flatbuffers
 import aiosmf
 from aiosmf.smf.rpc import header as rpc_header
-from aiosmf.smf.rpc.compression_flags import compression_flags
 
 from .util import (
     parse_address,
@@ -201,9 +200,9 @@ class SMFConnection:
         return header
 
     async def _read_payload(self, header):
-        buf = await self._reader.readexactly(header.Size()) #timeout?
+        buf = await self._reader.readexactly(header.Size())
         checksum = payload_checksum(buf)
         if header.Checksum() == checksum:
             return buf
-        else:
-            raise Exception("payload checksum mismatch")
+        raise Exception("Payload checksum {} does not match header {}" \
+                .format(checksum, header.Checksum()))
