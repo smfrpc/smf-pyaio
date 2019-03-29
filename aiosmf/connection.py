@@ -58,11 +58,11 @@ async def create_connection(address, *, timeout=None, loop=None):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         address = sock.getpeername()
 
-    return Client(reader, writer,
+    return SMFConnection(reader, writer,
             address=address,
             loop=loop)
 
-class Client:
+class SMFConnection:
     def __init__(self, reader, writer, *, address, loop=None):
         self._reader = reader
         self._writer = writer
@@ -77,7 +77,7 @@ class Client:
                 self._read_requests(), loop=self._loop)
 
     def __repr__(self):
-        return "<SMFClient [{}]>".format(self._address)
+        return "<SMFConnection [{}]>".format(self._address)
 
     def append_incoming_filter(self, f):
         self._incoming_filters += (f,)
