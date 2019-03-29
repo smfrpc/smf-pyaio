@@ -38,7 +38,17 @@ class _Context:
         for f in filters:
             f(self)
 
-async def create_connection(address, *, timeout=None, loop=None):
+async def create_connection(address, *,
+        incoming_filters=(),
+        outgoing_filters=(),
+        timeout=None,
+        loop=None):
+    """Creates an smf connection.
+
+    Args:
+    Returns:
+      The new connection.
+    """
     host, port = parse_address(address)
 
     if timeout is not None and (not isinstance(timeout, (int, float)) \
@@ -59,31 +69,33 @@ async def create_connection(address, *, timeout=None, loop=None):
         address = sock.getpeername()
 
     return SMFConnection(reader, writer,
+            incoming_filters=incoming_filters,
+            outgoing_filters=outgoing_filters,
             address=address,
             loop=loop)
 
 class SMFConnection:
-    def __init__(self, reader, writer, *, address, loop=None):
+    def __init__(self, reader, writer, *,
+            address,
+            incoming_filters=(),
+            outgoing_filters=(),
+            loop=None):
         self._reader = reader
         self._writer = writer
         self._address = address
         self._loop = loop or asyncio.get_running_loop()
-        self._incoming_filters = tuple()
-        self._outgoing_filters = tuple()
+        self._incoming_filters = incoming_filters
+        self._outgoing_filters = outgoing_filters
         self._incoming_timeout = None
         self._session_id = 0
         self._sessions = {}
-        self._read_task = asyncio.ensure_future(
-                self._read_requests(), loop=self._loop)
+        self._close_state = asyncio.Event()
+        self._reader_task = asyncio.ensure_future(self._read_requests(),
+                loop=self._loop)
+        self._reader_task.add_done_callback(lambda _: self._close_state.set())
 
     def __repr__(self):
         return "<SMFConnection [{}]>".format(self._address)
-
-    def append_incoming_filter(self, f):
-        self._incoming_filters += (f,)
-
-    def append_outgoing_filter(self, f):
-        self._outgoing_filters += (f,)
 
     async def call(self, payload, func_id):
         """
@@ -96,12 +108,13 @@ class SMFConnection:
         await self._send_request(call_ctx)
         return await self._receive_reply(future_reply)
 
-    async def close(self):
-        if self._reader:
-            self._reader.feed_eof()
-        if self._writer:
-            self._writer.close()
-            await self._writer.wait_closed()
+    def close(self):
+        self._reader_task.cancel()
+        self._writer.close()
+
+    async def wait_closed(self):
+        await self._close_state.wait()
+        await self._writer.wait_closed()
 
     def _new_session(self):
         self._session_id += 1
@@ -139,6 +152,9 @@ class SMFConnection:
                 await asyncio.wait_for(self._read_request(),
                         timeout=self._incoming_timeout,
                         loop=self._loop)
+            except asyncio.CancelledError:
+                logger.error("read task cancelled")
+                break
             except asyncio.TimeoutError:
                 logger.error("timeout error")
             except Exception as e:
@@ -146,6 +162,10 @@ class SMFConnection:
                 logger.error("got error {}".format(e))
                 for response in self._sessions.values():
                     response.set_exception(Exception("something happened"))
+            else:
+                logger.info("got a response")
+
+        logger.info("reader is quitting")
 
     async def _read_request(self):
         header = await self._read_header()
