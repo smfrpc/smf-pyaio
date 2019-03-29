@@ -1,24 +1,27 @@
+import socket
 import asyncio
 import collections
 import logging
 import flatbuffers
-import xxhash
 import aiosmf
 from aiosmf.smf.rpc import header as rpc_header
 from aiosmf.smf.rpc.compression_flags import compression_flags
 
+from .util import (
+    parse_address,
+    payload_checksum
+)
+
 logger = logging.getLogger("smf.client")
+logging.basicConfig(level=logging.DEBUG)
 
 _INCOMING_TIMEOUT = 0.01
 _UINT16_MAX = 65535
-_UINT32_MAX = 4294967295
 
 _COMPRESSION_FLAGS_DISABLED = compression_flags().disabled
 _COMPRESSION_FLAGS_MAX = compression_flags().max
 _COMPRESSION_FLAGS_NONE = compression_flags().none
 
-def _checksum(data):
-    return xxhash.xxh64(data).intdigest() & _UINT32_MAX
 
 class _Context:
     """
@@ -35,29 +38,52 @@ class _Context:
         for f in filters:
             f(self)
 
+async def create_connection(address, *, timeout=None, loop=None):
+    host, port = parse_address(address)
+
+    if timeout is not None and (not isinstance(timeout, (int, float)) \
+            or timeout <= 0):
+        raise ValueError("Invalid timeout: None or > 0")
+
+    if loop is None:
+        loop = asyncio.get_running_loop()
+
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port, loop=loop),
+        timeout=timeout, loop=loop)
+
+    sock = writer.transport.get_extra_info("socket")
+    if sock is not None:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        address = sock.getpeername()
+
+    return Client(reader, writer,
+            address=address,
+            loop=loop)
+
 class Client:
-    def __init__(self, host, port, *, incoming_filters=(),
-            outgoing_filters=(), incoming_timeout=_INCOMING_TIMEOUT, loop=None):
-        self._host = host
-        self._port = port
-        self._incoming_filters = incoming_filters
-        self._outgoing_filters = outgoing_filters
+    def __init__(self, reader, writer, *, address, loop=None):
+        self._reader = reader
+        self._writer = writer
+        self._address = address
         self._loop = loop or asyncio.get_running_loop()
-        self._incoming_timeout = incoming_timeout
-        self._reader = None
-        self._writer = None
+        self._incoming_filters = tuple()
+        self._outgoing_filters = tuple()
+        self._incoming_timeout = None
         self._session_id = 0
         self._sessions = {}
+        self._read_task = asyncio.ensure_future(
+                self._read_requests(), loop=self._loop)
 
     def __repr__(self):
-        return "<SMFClient [{}:{}]>".format(self._host, self._port)
+        return "<SMFClient [{}]>".format(self._address)
 
-    async def connect(self):
-        assert self._reader is None
-        assert self._writer is None
-        self._reader, self._writer = await asyncio.open_connection(
-            self._host, self._port, loop=self._loop)
-        asyncio.ensure_future(self._read_requests(), loop=self._loop)
+    def append_incoming_filter(self, f):
+        self._incoming_filters += (f,)
+
+    def append_outgoing_filter(self, f):
+        self._outgoing_filters += (f,)
 
     async def call(self, payload, func_id):
         """
@@ -95,7 +121,7 @@ class Client:
         await self._writer.drain()
 
     def _build_header(self, ctx):
-        checksum = _checksum(ctx.payload)
+        checksum = payload_checksum(ctx.payload)
         builder = flatbuffers.Builder(20)
         header = rpc_header.Createheader(builder, ctx.compression, 0,
             ctx.session_id, len(ctx.payload), checksum, ctx.meta)
@@ -155,15 +181,8 @@ class Client:
 
     async def _read_payload(self, header):
         buf = await self._reader.readexactly(header.Size()) #timeout?
-        checksum = _checksum(buf)
+        checksum = payload_checksum(buf)
         if header.Checksum() == checksum:
             return buf
         else:
             raise Exception("payload checksum mismatch")
-
-    async def __aenter__(self):
-        await self.connect()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.close()
