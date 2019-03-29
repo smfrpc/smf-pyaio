@@ -12,23 +12,24 @@ from .util import (
     payload_checksum
 )
 
+from .constants import (
+    COMPRESSION_NONE,
+    COMPRESSION_DISABLED,
+    COMPRESSION_MAX
+)
+
 logger = logging.getLogger("smf.client")
 logging.basicConfig(level=logging.DEBUG)
 
 _INCOMING_TIMEOUT = 0.01
 _UINT16_MAX = 65535
 
-_COMPRESSION_FLAGS_DISABLED = compression_flags().disabled
-_COMPRESSION_FLAGS_MAX = compression_flags().max
-_COMPRESSION_FLAGS_NONE = compression_flags().none
-
-
 class _Context:
     """
     Manage RPC send and receive state.
     """
     def __init__(self, payload, meta, session_id,
-            compression=_COMPRESSION_FLAGS_NONE):
+            compression=COMPRESSION_NONE):
         self.payload = payload
         self.meta = meta
         self.session_id = session_id
@@ -171,8 +172,8 @@ class SMFConnection:
         header = await self._read_header()
         payload = await self._read_payload(header)
         compression = header.Compression()
-        if header.Compression() == _COMPRESSION_FLAGS_DISABLED:
-            compression = _COMPRESSION_FLAGS_NONE
+        if header.Compression() == COMPRESSION_DISABLED:
+            compression = COMPRESSION_NONE
         recv_ctx = _Context(payload, header.Meta(), header.Session(), compression)
         session = self._sessions.pop(header.Session(), None)
         if session is not None:
@@ -189,7 +190,7 @@ class SMFConnection:
             raise Exception("skipping body its empty")
         if header.Size() > flatbuffers.builder.Builder.MAX_BUFFER_SIZE:
             raise Exception("bad payload. body bigger than flatbuf max size")
-        if header.Compression() > _COMPRESSION_FLAGS_MAX:
+        if header.Compression() > COMPRESSION_MAX:
             raise Exception("compression out of range")
         if header.Checksum() <= 0:
             raise Exception("empty checksum")
