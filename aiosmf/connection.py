@@ -153,6 +153,8 @@ class SMFConnection:
     async def _receive_reply(self, future_reply):
         recv_ctx = await future_reply
         recv_ctx.apply(self._incoming_filters)
+        if recv_ctx.compression != COMPRESSION_NONE:
+            raise Exception("Unexpected reply state")
         return recv_ctx.payload, recv_ctx.meta
 
     async def _read_requests(self):
