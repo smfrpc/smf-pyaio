@@ -1,35 +1,15 @@
-* Works with https://github.com/MagicStack/uvloop
+# aiosmf
 
-# flatc notes
+smf rpc implementation for asyncio -- https://aiosmf.readthedocs.org
 
-```diff
-diff --git a/aiosmf/smf/rpc/compression_flags.py b/aiosmf/smf/rpc/compression_flags.py
-index b8bbfb6..2234e32 100644
---- a/aiosmf/smf/rpc/compression_flags.py
-+++ b/aiosmf/smf/rpc/compression_flags.py
-@@ -17,4 +17,4 @@ class compression_flags(object):
-     zstd = 2
- # /// \brief lz4 compression
-     lz4 = 3
--
-+    max = lz4
-```
+The [smf project](https://github.com/smfrpc/smf) is a high-performance rpc
+platform built using the c++ [Seastar](https://github.com/scylladb/seastar)
+framework. This project is a Python asyncio implementation of the rpc protocol
+used by smf. There are also [Go](https://github.com/smfrpc/smf-go) and
+[Java](https://github.com/KowalczykBartek/smf-java) implementations.
 
-```diff
-diff --git a/aiosmf/connection.py b/aiosmf/connection.py
-index 69ba45c..81dc102 100644
---- a/aiosmf/connection.py
-+++ b/aiosmf/connection.py
-@@ -148,7 +148,13 @@ class SMFConnection:
-         header = aiosmf.smf.rpc.header.Createheader(builder, ctx.compression, 0,
-                 ctx.session_id, len(ctx.payload), checksum, ctx.meta)
-         builder.Finish(header)
--        return builder.Output()[4:]
-+        # XXX: the flatbuffers python code doesn't offer a sizeof option for
-+        # structs and the serialization also adds a size header into the buffer.
-+        # so when integrating an update the codegen make sure that the header is
-+        # stripped off and the size is correct.
-+        buf = builder.Output()[4:]
-+        assert len(buf) == 16
-+        return buf
-```
+Note that current support in aiosmf is limited to client implementations.
+Servers are written in C++, Go, or Java. Adding a Python server framework is
+future work.
+
+Please see https://aiosmf.readthedocs.org for instructions on getting started.
