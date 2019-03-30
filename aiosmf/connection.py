@@ -148,7 +148,13 @@ class SMFConnection:
         header = aiosmf.smf.rpc.header.Createheader(builder, ctx.compression, 0,
                 ctx.session_id, len(ctx.payload), checksum, ctx.meta)
         builder.Finish(header)
-        return builder.Output()[4:]
+        # XXX: the flatbuffers python code doesn't offer a sizeof option for
+        # structs and the serialization also adds a size header into the buffer.
+        # so when integrating an update the codegen make sure that the header is
+        # stripped off and the size is correct.
+        buf = builder.Output()[4:]
+        assert len(buf) == 16
+        return buf
 
     async def _receive_reply(self, future_reply):
         recv_ctx = await future_reply
