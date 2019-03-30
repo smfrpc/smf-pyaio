@@ -24,7 +24,6 @@ __all__ = [
 logger = logging.getLogger("smf")
 
 _INCOMING_TIMEOUT = 0.01
-_UINT16_MAX = 65535
 
 class _Context:
     """
@@ -129,8 +128,9 @@ class SMFConnection:
             reply_fut.set_exception(Exception("Connection closed"))
 
     def _new_session(self):
+        # uint16_t::max = 65535
         self._session_id += 1
-        if self._session_id > _UINT16_MAX:
+        if self._session_id > 65535:
             self._session_id = 0
         if self._session_id in self._sessions:
             raise Exception("no rpc slot available")
