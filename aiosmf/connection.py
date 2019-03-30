@@ -23,8 +23,6 @@ __all__ = [
 
 logger = logging.getLogger("smf")
 
-_INCOMING_TIMEOUT = 0.01
-
 class _Context:
     """
     Manage RPC send and receive state.
@@ -88,7 +86,6 @@ class SMFConnection:
         self._loop = loop or asyncio.get_running_loop()
         self._incoming_filters = incoming_filters
         self._outgoing_filters = outgoing_filters
-        self._incoming_timeout = None
         self._session_id = 0
         self._sessions = {}
         self._closed = False
