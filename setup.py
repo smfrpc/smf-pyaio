@@ -1,5 +1,7 @@
 from setuptools import setup, find_packages
 
+long_description = open("README.md").read()
+
 setup(
     name="aiosmf",
     version="0.0.1",
@@ -8,6 +10,8 @@ setup(
     author="Noah Watkins",
     author_email="noahwatkins@gmail.com",
     description="Python asyncio smf rpc implementation",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     license="Apache License 2.0",
     keywords="smf rpc seastar",
     url="https://github.com/noahdesu/aiosmf",
