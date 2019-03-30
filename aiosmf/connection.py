@@ -16,8 +16,12 @@ from .constants import (
     COMPRESSION_MAX
 )
 
-logger = logging.getLogger("smf.client")
-logging.basicConfig(level=logging.DEBUG)
+__all__ = [
+    "create_connection",
+    "SMFConnection",
+]
+
+logger = logging.getLogger("smf")
 
 _INCOMING_TIMEOUT = 0.01
 _UINT16_MAX = 65535
@@ -88,6 +92,7 @@ class SMFConnection:
         self._incoming_timeout = None
         self._session_id = 0
         self._sessions = {}
+        self._closed = False
         self._close_state = asyncio.Event()
         self._reader_task = asyncio.ensure_future(self._read_requests(),
                 loop=self._loop)
@@ -102,18 +107,26 @@ class SMFConnection:
             payload:
             func_id:
         """
+        if self._closed:
+            raise Exception("{} closed".format(self))
         session_id, future_reply = self._new_session()
         call_ctx = _Context(payload, func_id, session_id)
         await self._send_request(call_ctx)
         return await self._receive_reply(future_reply)
 
     def close(self):
+        if self._closed:
+            return
         self._reader_task.cancel()
         self._writer.close()
+        self._closed = True
 
     async def wait_closed(self):
+        self.close()
         await self._close_state.wait()
         await self._writer.wait_closed()
+        for reply_fut in self._sessions.values():
+            reply_fut.set_exception(Exception("Connection closed"))
 
     def _new_session(self):
         self._session_id += 1
@@ -146,25 +159,24 @@ class SMFConnection:
         return recv_ctx.payload, recv_ctx.meta
 
     async def _read_requests(self):
+        exc = None
         while True:
             try:
-                await asyncio.wait_for(self._read_request(),
-                        timeout=self._incoming_timeout,
-                        loop=self._loop)
-            except asyncio.CancelledError:
-                logger.error("read task cancelled")
+                await self._read_request()
+            except asyncio.CancelledError as e:
+                logger.debug("Reader task cancelled")
+                exc = e
                 break
-            except asyncio.TimeoutError:
-                logger.error("timeout error")
             except Exception as e:
-                # we should pobably reset things here...
-                logger.error("got error {}".format(e))
-                for response in self._sessions.values():
-                    response.set_exception(Exception("something happened"))
+                logger.exception("Reader task received exception")
+                exc = e
+                break
             else:
-                logger.info("got a response")
+                logger.debug("Reader task handled request")
 
-        logger.info("reader is quitting")
+        logger.debug("Reader task finishing")
+        for reply_fut in self._sessions.values():
+            reply_fut.set_exception(exc)
 
     async def _read_request(self):
         header = await self._read_header()
@@ -177,25 +189,24 @@ class SMFConnection:
         if session is not None:
             session.set_result(recv_ctx)
         else:
-            # we should probably reset things here by raising an exception
-            logging.error("session id {} not found".format(header.Session()))
+            raise Exception("Session {} not found".format(header.Session()))
 
     async def _read_header(self):
         buf = await self._reader.readexactly(16)
         header = aiosmf.smf.rpc.header.header()
         header.Init(buf, 0)
         if header.Size() == 0:
-            raise Exception("skipping body its empty")
+            raise Exception("Empty body")
         if header.Size() > flatbuffers.builder.Builder.MAX_BUFFER_SIZE:
-            raise Exception("bad payload. body bigger than flatbuf max size")
+            raise Exception("Bad payload. Size exceeds maximum")
         if header.Compression() > COMPRESSION_MAX:
-            raise Exception("compression out of range")
+            raise Exception("Invalid compression request")
         if header.Checksum() <= 0:
-            raise Exception("empty checksum")
+            raise Exception("Empty checksum")
         if header.Bitflags() != 0:
-            raise NotImplementedError()
+            raise NotImplementedError("Bitflags not implemented")
         if header.Meta() <= 0:
-            raise Exception("empty meta")
+            raise Exception("Empty meta")
         return header
 
     async def _read_payload(self, header):
