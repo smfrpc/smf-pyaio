@@ -10,6 +10,6 @@ used by smf. There are also [Go](https://github.com/smfrpc/smf-go) and
 
 Note that current support in aiosmf is limited to client implementations.
 Servers are written in C++, Go, or Java. Adding a Python server framework is
-future work.
+future work (see https://github.com/smfrpc/smf-pyaio/issues/21).
 
 Please see https://aiosmf.readthedocs.org for instructions on getting started.
