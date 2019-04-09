@@ -5,16 +5,10 @@ import logging
 import flatbuffers
 import aiosmf.smf.rpc.header
 
-from .util import (
-    parse_address,
-    payload_checksum
-)
+from .util import (parse_address, payload_checksum)
 
-from .constants import (
-    COMPRESSION_NONE,
-    COMPRESSION_DISABLED,
-    COMPRESSION_MAX
-)
+from .constants import (COMPRESSION_NONE, COMPRESSION_DISABLED,
+                        COMPRESSION_MAX)
 
 __all__ = [
     "create_connection",
@@ -23,12 +17,14 @@ __all__ = [
 
 logger = logging.getLogger("smf")
 
+
 class _Context:
     """
     Manage RPC send and receive state.
     """
+
     def __init__(self, payload, meta, session_id,
-            compression=COMPRESSION_NONE):
+                 compression=COMPRESSION_NONE):
         self.payload = payload
         self.meta = meta
         self.session_id = session_id
@@ -38,11 +34,13 @@ class _Context:
         for f in filters:
             f(self)
 
-async def create_connection(address, *,
-        incoming_filters=(),
-        outgoing_filters=(),
-        timeout=None,
-        loop=None):
+
+async def create_connection(address,
+                            *,
+                            incoming_filters=(),
+                            outgoing_filters=(),
+                            timeout=None,
+                            loop=None):
     """Creates an smf connection.
 
     Args:
@@ -58,9 +56,11 @@ async def create_connection(address, *,
     if loop is None:
         loop = asyncio.get_running_loop()
 
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection(host, port, loop=loop),
-        timeout=timeout, loop=loop)
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(host,
+                                                                    port,
+                                                                    loop=loop),
+                                            timeout=timeout,
+                                            loop=loop)
 
     sock = writer.transport.get_extra_info("socket")
     if sock is not None:
@@ -68,18 +68,23 @@ async def create_connection(address, *,
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         address = sock.getpeername()
 
-    return SMFConnection(reader, writer,
-            incoming_filters=incoming_filters,
-            outgoing_filters=outgoing_filters,
-            address=address,
-            loop=loop)
+    return SMFConnection(reader,
+                         writer,
+                         incoming_filters=incoming_filters,
+                         outgoing_filters=outgoing_filters,
+                         address=address,
+                         loop=loop)
+
 
 class SMFConnection:
-    def __init__(self, reader, writer, *,
-            address,
-            incoming_filters=(),
-            outgoing_filters=(),
-            loop=None):
+    def __init__(self,
+                 reader,
+                 writer,
+                 *,
+                 address,
+                 incoming_filters=(),
+                 outgoing_filters=(),
+                 loop=None):
         self._reader = reader
         self._writer = writer
         self._address = address
@@ -91,7 +96,7 @@ class SMFConnection:
         self._closed = False
         self._close_state = asyncio.Event()
         self._reader_task = asyncio.ensure_future(self._read_requests(),
-                loop=self._loop)
+                                                  loop=self._loop)
         self._reader_task.add_done_callback(lambda _: self._close_state.set())
 
     def __repr__(self):
@@ -145,8 +150,10 @@ class SMFConnection:
     def _build_header(self, ctx):
         checksum = payload_checksum(ctx.payload)
         builder = flatbuffers.Builder(20)
-        header = aiosmf.smf.rpc.header.Createheader(builder, ctx.compression, 0,
-                ctx.session_id, len(ctx.payload), checksum, ctx.meta)
+        header = aiosmf.smf.rpc.header.Createheader(builder, ctx.compression,
+                                                    0, ctx.session_id,
+                                                    len(ctx.payload), checksum,
+                                                    ctx.meta)
         builder.Finish(header)
         # XXX: the flatbuffers python code doesn't offer a sizeof option for
         # structs and the serialization also adds a size header into the buffer.
@@ -189,7 +196,8 @@ class SMFConnection:
         compression = header.Compression()
         if header.Compression() == COMPRESSION_DISABLED:
             compression = COMPRESSION_NONE
-        recv_ctx = _Context(payload, header.Meta(), header.Session(), compression)
+        recv_ctx = _Context(payload, header.Meta(), header.Session(),
+                            compression)
         session = self._sessions.pop(header.Session(), None)
         if session is not None:
             session.set_result(recv_ctx)
