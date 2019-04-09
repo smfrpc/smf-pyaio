@@ -6,7 +6,7 @@ to have a working example we need a server, which can be built using C++, Go,
 or Java. We'll be using the C++-based server described in this introductory smf
 post:
 
-    https://nwat.xyz/blog/2019/03/22/getting-started-with-the-smf-rpc-framework/
+    https://smfrpc.github.io/smf//2019/03/25/getting-started/
 
 This is the rpc specification for the example server. The Put interface
 receives a PutRequest and returns a PutResponse. The first step in using aiosmf
